@@ -4,7 +4,8 @@
 # of PostgreSQL + PostGIS and outputs PostgreSQL 
 # configuration file for checking
 
-declare -a arr=("15|3"
+declare -a arr=("16|3"
+                "15|3"
                 "14|3"
                 "13|3"
                 "12|3"

@@ -4,7 +4,7 @@
 # and gets the available PostGIS version for each of them.
 # Also ouputs the distribution used for each image. 
 
-pg_versions="15 14 13 12 11 11-bullseye 10 10-bullseye 9.6 9.6-bullseye 9.5"
+pg_versions="16 15 14 13 12 11 11-bullseye 10 10-bullseye 9.6 9.6-bullseye 9.5"
 
 for v in $pg_versions
 do
@@ -18,6 +18,12 @@ do
     if [ "$codename" = "stretch" ]
     then
       echo "applying apt-archive.postgres.org patch"
+      c="sed -i 's/deb\.debian\.org/archive\.debian\.org/' /etc/apt/sources.list"
+      docker exec -ti pg$v bash -c "$c"
+      c="sed -i 's/security\.debian\.org/archive\.debian\.org/' /etc/apt/sources.list"
+      docker exec -ti pg$v bash -c "$c"
+      c="sed -i '/stretch-updates/d' /etc/apt/sources.list"
+      docker exec -ti pg$v bash -c "$c"
       c="cd /etc/apt/sources.list.d/ && mv pgdg.list pgdg.list.backup"
       docker exec -ti pg$v bash -c "$c"
       c="apt-get -qq update && DEBCONF_NOWARNINGS='yes' apt-get install apt-transport-https -y > /dev/null"

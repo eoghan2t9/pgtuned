@@ -8,6 +8,9 @@ codename=$(source /etc/os-release && echo -n $VERSION_CODENAME)
 
 if [ "$codename" = "stretch" ]
 then
+  sed -i 's/deb\.debian\.org/archive\.debian\.org/' /etc/apt/sources.list
+  sed -i 's/security\.debian\.org/archive\.debian\.org/' /etc/apt/sources.list
+  sed -i '/stretch-updates/d' /etc/apt/sources.list
   cd /etc/apt/sources.list.d/
   mv pgdg.list pgdg.list.backup
   apt-get -qq update
