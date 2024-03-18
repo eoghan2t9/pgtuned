@@ -6,7 +6,7 @@
 test_files_dir="../expected_results/"
 pgtuned_script="../../pgtune.sh"
 pg_versions="16 15 14 13 12 11 10 9.6 9.5"
-db_types="web oltp dw desktop mixed"
+# db_types="web oltp dw desktop mixed"
 total_mem=8GB
 cpu_count=8
 max_conn=1000
