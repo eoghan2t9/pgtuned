@@ -37,7 +37,7 @@ It produces a postgresql.conf file based on supplied parameters.
                       accepted values: integer between 1 and 9999
                       CPUs = threads per core * cores per socket * sockets
                       default value: this script will try to determine the CPUs count and exit in case of failure
-  -c MAX_CONN         (optional) Maxsimum number of PostgreSQL client connections
+  -c MAX_CONN         (optional) Maximum number of PostgreSQL client connections
                       accepted values: integer between 20 and 9999
                       default value: preset corresponding to DB_TYPE
   -s STGE_TYPE        (optional) Type of data storage device used with PostgreSQL
@@ -57,7 +57,7 @@ function _warn() {
 }
 
 #######################################
-# Utility function to print an error.
+# Utility function to print an error
 # related to an input value
 # Arguments:
 #   Message to print as input error
@@ -68,7 +68,7 @@ function _input_error() {
 }
 
 #######################################
-# Utility functions to print error messages.
+# Utility function to print error messages.
 # Arguments:
 #   Message to print as error
 #######################################
@@ -90,7 +90,7 @@ function get_total_ram () {
   if [[ -z $total_ram ]] || [[ "$total_ram" -eq "0" ]]; then
     _error "Cannot detect total memory size, terminating script. Please supply -m TOTAL_MEM."
   fi
-  echo $total_ram
+  echo "$total_ram"
 }
 
 #######################################
@@ -106,7 +106,7 @@ function get_cpu_count () {
   if [[ -z $cpu_count ]] || [[ "$cpu_count" -eq "0" ]]; then
     _error "Cannot detect CPU count, terminating script. Please supply -u CPU_COUNT."
   fi
-  echo $cpu_count
+  echo "$cpu_count"
 }
 
 #######################################
@@ -416,7 +416,7 @@ function set_random_page_cost() {
 }
 
 #######################################
-# Set set_random_page_cost config value.
+# Set effective_io_concurrency config value.
 # Globals:
 #   STORAGE_TYPE: used
 #   effective_io_concurrency: modified
@@ -456,26 +456,31 @@ function set_effective_io_concurrency() {
 #######################################
 function set_parallel_settings() {
   declare -Ag parallel_settings
-  if [ "$CPU_NUM" -lt 2 ] || ( [ "${DB_VERSION%.*}" -le 9 ] && [ "${DB_VERSION//./}" -lt 95 ] ); then
+  declare -ag orders
+  if [ "$CPU_NUM" -lt 2 ] || { [ "${DB_VERSION%.*}" -le 9 ] && [ "${DB_VERSION//./}" -lt 95 ]; }; then
     return 0
   fi
-  parallel_settings[max_worker_processes]="$CPU_NUM"
+  parallel_settings["max_worker_processes"]="$CPU_NUM"
+  orders+=( "max_worker_processes" )
   if [ "${DB_VERSION//./}" -ge "96" ] || [ "${DB_VERSION%.*}" -ge 10 ]; then
     workers_per_gather=$(( CPU_NUM / 2 ))
     if [ $workers_per_gather -gt 4 ] && [[ "$DB_TYPE" != "dw" ]]; then
       workers_per_gather=4
     fi
-    parallel_settings[max_parallel_workers_per_gather]="$workers_per_gather"
+    parallel_settings["max_parallel_workers_per_gather"]="$workers_per_gather"
+    orders+=( "max_parallel_workers_per_gather" )
   fi
   if [ "${DB_VERSION%.*}" -ge 10 ]; then
-    parallel_settings[max_parallel_workers]="$CPU_NUM"
+    parallel_settings["max_parallel_workers"]="$CPU_NUM"
+    orders+=( "max_parallel_workers" )
   fi
   if [ "${DB_VERSION%.*}" -ge 11 ]; then
     maintenance_workers=$(( CPU_NUM / 2 ))
     if [ $maintenance_workers -gt 4 ]; then
       maintenance_workers=4
     fi
-    parallel_settings[max_parallel_maintenance_workers]="$maintenance_workers"
+    parallel_settings["max_parallel_maintenance_workers"]="$maintenance_workers"
+    orders+=( "max_parallel_maintenance_workers" )
   fi
 }
 
@@ -493,13 +498,13 @@ function set_parallel_settings() {
 function set_work_mem() {
   local -i parallel_for_work_mem=1
   if [ "${#parallel_settings[@]}" -gt "0" ]; then
-    if [[ ${parallel_settings[max_parallel_workers_per_gather]} ]]; then
-      parallel_for_work_mem=${parallel_settings[max_parallel_workers_per_gather]}
+    if [[ ${parallel_settings["max_parallel_workers_per_gather"]} ]]; then
+      parallel_for_work_mem=${parallel_settings["max_parallel_workers_per_gather"]}
     fi
-  elif [ ! -z ${max_parallel_workers_per_gather+x} ]; then
+  elif [ -n "${max_parallel_workers_per_gather+x}" ]; then
     parallel_for_work_mem=$max_parallel_workers_per_gather
   fi
-  work_mem_value=$(( ($TOTAL_MEM - $shared_buffers) / ($CONN_NUM * 3) / $parallel_for_work_mem ))
+  work_mem_value=$(( (TOTAL_MEM - shared_buffers) / (CONN_NUM * 3) / parallel_for_work_mem ))
   case "$DB_TYPE" in
     "web")
       work_mem=$work_mem_value
@@ -508,13 +513,13 @@ function set_work_mem() {
       work_mem=$work_mem_value
       ;;
     "dw")
-      work_mem=$(( $work_mem_value/2 ))
+      work_mem=$(( work_mem_value/2 ))
       ;;
     "desktop")
-      work_mem=$(( $work_mem_value/6 ))
+      work_mem=$(( work_mem_value/6 ))
       ;;
     "mixed")
-      work_mem=$(( $work_mem_value/2 ))
+      work_mem=$(( work_mem_value/2 ))
       ;;
     *)
       _error "unknown DB_TYPE, cannot calculate work_mem"
@@ -522,6 +527,20 @@ function set_work_mem() {
   esac
   if [ $work_mem -lt 64 ]; then
     work_mem=64
+  fi
+}
+
+#######################################
+# Set huge pages
+# Globals:
+#   disk_type: used
+#   huge_pages: modified
+#######################################
+function set_huge_pages() {
+  if [[ "$TOTAL_MEM" -ge "$(( 32 * MB ))" ]]; then
+    huge_pages="try"
+  else
+    huge_pages="off"
   fi
 }
 
@@ -541,15 +560,15 @@ function format_value() {
   else
     space=""
   fi
-  if [ $(( $1 % $MB )) -eq 0 ]; then
-    formatted_value=$(( $1 / $MB ))$space"GB"
-    echo $formatted_value
-  elif [ $(( $1 % $KB )) -eq 0 ]; then
-    formatted_value=$(( $1 / $KB ))$space"MB"
-    echo $formatted_value
+  if [ $(( $1 % MB )) -eq 0 ]; then
+    formatted_value=$(( $1 / MB ))$space"GB"
+    echo "$formatted_value"
+  elif [ $(( $1 % KB )) -eq 0 ]; then
+    formatted_value=$(( $1 / KB ))$space"MB"
+    echo "$formatted_value"
   else
     formatted_value=$1$space"kB"
-    echo $formatted_value
+    echo "$formatted_value"
   fi
 }
 
@@ -566,26 +585,26 @@ function main() {
         ;;
       v)
         v=$OPTARG
-        if [ $v != "9.5" ] && \
-        [ $v != "9.6" ] && \
-        [ $v != "10" ] && \
-        [ $v != "11" ] && \
-        [ $v != "12" ] && \
-        [ $v != "13" ] && \
-        [ $v != "14" ] && \
-        [ $v != "15" ] && \
-        [ $v != "16" ]; then
+        if [ "$v" != "9.5" ] && \
+        [ "$v" != "9.6" ] && \
+        [ "$v" != "10" ] && \
+        [ "$v" != "11" ] && \
+        [ "$v" != "12" ] && \
+        [ "$v" != "13" ] && \
+        [ "$v" != "14" ] && \
+        [ "$v" != "15" ] && \
+        [ "$v" != "16" ]; then
             _input_error "$v is not a valid PostgreSQL version number"
         fi
         DB_VERSION=$v
         ;;
       t)                        
         t=$OPTARG
-        if [ $t != "web" ] && \
-        [ $t != "oltp" ] && \
-        [ $t != "dw" ] && \
-        [ $t != "desktop" ] && \
-        [ $t != "mixed" ]; then
+        if [ "$t" != "web" ] && \
+        [ "$t" != "oltp" ] && \
+        [ "$t" != "dw" ] && \
+        [ "$t" != "desktop" ] && \
+        [ "$t" != "mixed" ]; then
             _input_error "$t is not a valid database type identifier" 
         fi
         DB_TYPE="$t"
@@ -597,13 +616,13 @@ function main() {
             if [ "$ram" -lt "512" ] || [ "$ram" -gt "9999" ]; then
               _input_error "total memory in MB must be greater than or equal to 512MB and less than or equal to 9999MB" 
             fi
-            ram=$(( $ram*$KB ))
+            ram=$(( ram*KB ))
         elif [[ $m == *"GB"* ]]; then
             ram=${m%"GB"}
             if [ "$ram" -lt "1" ] || [ "$ram" -gt "9999" ]; then
               _input_error "total memory in GB must be greater than or equal to 1GB and less than or equal to 9999GB"
             fi
-            ram=$(( $ram*$MB ))
+            ram=$(( ram*MB ))
         else
             _input_error "$m does not contain a valid unit identifier (use MB or GB)"
         fi
@@ -625,9 +644,9 @@ function main() {
         ;;
       s)
         s=$OPTARG
-        if [ $s != "hdd" ] && \
-        [ $s != "ssd" ] && \
-        [ $s != "san" ]; then
+        if [ "$s" != "hdd" ] && \
+        [ "$s" != "ssd" ] && \
+        [ "$s" != "san" ]; then
           _input_error "$s is not a valid storage type identifier"
         fi
         STORAGE_TYPE="$s"
@@ -639,7 +658,7 @@ function main() {
     esac
   done
 
-  if [ "$DB_VERSION" -eq "0" ]; then
+  if [ "${DB_VERSION//./}" -eq "0" ]; then
     DB_VERSION=16
   fi
 
@@ -659,11 +678,11 @@ function main() {
     STORAGE_TYPE=$(get_disk_type)
   fi
 
-  if [ "$DB_VERSION" -eq "0" ]; then
+  if [ "${DB_VERSION//./}" -eq "0" ]; then
     DB_VERSION=16
   fi
 
-  if [ $CONN_NUM -eq "0" ]; then
+  if [ "$CONN_NUM" -eq "0" ]; then
     case $DB_TYPE in
       "web")
         CONN_NUM=200
@@ -706,34 +725,36 @@ function main() {
   set_effective_io_concurrency || exit $?
   set_parallel_settings
   set_work_mem || exit $?
+  set_huge_pages
 
-  echo "# DB Version: "$DB_VERSION
+  echo "# DB Version: $DB_VERSION"
   echo "# OS Type: linux"
-  echo "# DB Type: "$DB_TYPE
-  echo "# Total Memory (RAM): "$(format_value $TOTAL_MEM 1)
-  echo "# CPUs num: "$CPU_NUM
-  echo "# Connections num: "$CONN_NUM
-  echo "# Data Storage: "$STORAGE_TYPE
+  echo "# DB Type: $DB_TYPE"
+  echo "# Total Memory (RAM): $(format_value "$TOTAL_MEM" 1)"
+  echo "# CPUs num: $CPU_NUM"
+  echo "# Connections num: $CONN_NUM"
+  echo "# Data Storage: $STORAGE_TYPE"
   echo
-  echo "max_connections = "$CONN_NUM
-  echo "shared_buffers = "$(format_value $shared_buffers)
-  echo "effective_cache_size = "$(format_value $effective_cache_size)
-  echo "maintenance_work_mem = "$(format_value $maintenance_work_mem)
-  echo "checkpoint_completion_target = "$checkpoint_completion_target
-  echo "wal_buffers = "$(format_value $wal_buffers)
-  echo "default_statistics_target = "$default_statistics_target
-  echo "random_page_cost = "$random_page_cost
-  echo "effective_io_concurrency = "$effective_io_concurrency
-  echo "work_mem = "$(format_value $work_mem)
-  echo "min_wal_size = "$(format_value $min_wal_size)
-  echo "max_wal_size = "$(format_value $max_wal_size)
-
-  for key in "${!parallel_settings[@]}"; do 
-    echo $key" = "${parallel_settings[$key]}
+  echo "max_connections = $CONN_NUM"
+  echo "shared_buffers = $(format_value $shared_buffers)"
+  echo "effective_cache_size = $(format_value $effective_cache_size)"
+  echo "maintenance_work_mem = $(format_value $maintenance_work_mem)"
+  echo "checkpoint_completion_target = $checkpoint_completion_target"
+  echo "wal_buffers = $(format_value $wal_buffers)"
+  echo "default_statistics_target = $default_statistics_target"
+  echo "random_page_cost = $random_page_cost"
+  echo "effective_io_concurrency = $effective_io_concurrency"
+  echo "work_mem = $(format_value $work_mem)"
+  echo "huge_pages = $huge_pages"
+  echo "min_wal_size = $(format_value $min_wal_size)"
+  echo "max_wal_size = $(format_value $max_wal_size)"
+  
+  for key in "${orders[@]}"; do 
+    echo "$key = ${parallel_settings["$key"]}"
   done
-  if [ ! -z ${checkpoint_segments+x} ]; then
-    echo "checkpoint_segments = "$checkpoint_segments
-  fi
+  if [ -n "${checkpoint_segments+x}" ]; then
+    echo "checkpoint_segments = $checkpoint_segments"
+  fi  
 
   unset set_parallel_settings
 }

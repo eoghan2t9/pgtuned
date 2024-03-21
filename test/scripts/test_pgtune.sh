@@ -19,23 +19,23 @@ do
       db_type="web"
       echo "TESTING WITH THE FOLLOWING PARAMETERS"
       echo "====================================="
-      echo "= pg_version: "$pg_version
-      echo "= db_type: "$db_type
-      echo "= total_mem: "$total_mem
-      echo "= cpu_count: "$cpu_count
-      echo "= max_conn: "$max_conn
-      echo "= stge_type: "$stge_type
+      echo "= pg_version: $pg_version"
+      echo "= db_type: $db_type"
+      echo "= total_mem: $total_mem"
+      echo "= cpu_count: $cpu_count"
+      echo "= max_conn: $max_conn"
+      echo "= stge_type: $stge_type"
       echo "====================================="
-      output_file=$pg_version$db_type$total_mem$cpu_count$max_conn$stge_type".txt"
-      bash $pgtuned_script -v $pg_version -t $db_type -m $total_mem -u $cpu_count -c $max_conn -s $stge_type > $output_file
-      test_file=$pg_version"_linux_"$db_type"_"$total_mem"_"$cpu_count"_"$max_conn"_"$stge_type".txt"
+      output_file="$pg_version$db_type$total_mem$cpu_count$max_conn$stge_type.txt"
+      bash "$pgtuned_script" -v "$pg_version" -t "$db_type" -m "$total_mem" -u "$cpu_count" -c "$max_conn" -s "$stge_type" > "$output_file"
+      test_file="$pg_version"_linux_"$db_type"_"$total_mem"_"$cpu_count"_"$max_conn"_"$stge_type".txt
       if [ ! -f "$test_files_dir$test_file" ]
       then
         echo "Test result : error"
         echo "REASON : $test_file does not exist"
         exit 2
       fi 
-      if [ "$(cmp $test_files_dir$test_file $output_file)" ]
+      if [ "$(cmp "$test_files_dir$test_file" "$output_file")" ]
       then
         echo "Test result : error"
         echo "REASON : generated file does not match existing file. Inspect $output_file."
@@ -44,6 +44,6 @@ do
         echo "Test result : passed"
         echo
       fi
-      rm $output_file
+      rm "$output_file"
   done
 done
